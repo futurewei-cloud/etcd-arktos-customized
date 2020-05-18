@@ -103,6 +103,11 @@ type store struct {
 	// compactMainRev is the main revision of the last compaction.
 	compactMainRev int64
 
+	// Count for write per second
+	countWritePerMS int
+	// TimeStamp for write per second
+	writePerMSRev int64
+
 	// bytesBuf8 is a byte slice of length 8
 	// to avoid a repetitive allocation in saveIndex.
 	bytesBuf8 []byte
@@ -128,7 +133,7 @@ func NewStore(lg *zap.Logger, b backend.Backend, le lease.Lessor, ig ConsistentI
 
 		le: le,
 
-		currentRev:     1,
+		currentRev:     getCurrentRevisionBase(),
 		compactMainRev: -1,
 
 		bytesBuf8: make([]byte, 8),
@@ -138,6 +143,7 @@ func NewStore(lg *zap.Logger, b backend.Backend, le lease.Lessor, ig ConsistentI
 
 		lg: lg,
 	}
+	plog.Printf("New ETCD store. Rev %d", s.currentRev)
 	s.ReadView = &readView{s}
 	s.WriteView = &writeView{s}
 	if s.le != nil {
@@ -159,6 +165,24 @@ func NewStore(lg *zap.Logger, b backend.Backend, le lease.Lessor, ig ConsistentI
 	}
 
 	return s
+}
+
+// TODO: read from config
+const clusterId = 1
+
+func getCurrentRevisionBase() int64 {
+	newRevBase := time.Now().UnixNano() / 1000000
+	// convert to millisecond
+	//newRevBase = newRevBase * 1000
+	// Add cluster id: assume <= 64 clusters
+	newRevBase = newRevBase << 6 + clusterId
+	// Allow 1024 * 8 revision per milliseconds
+	newRevBase = newRevBase << 13
+	if newRevBase < 0 {
+		panic("Current system design does not support time passing 2500-01-01")
+	}
+
+	return newRevBase
 }
 
 func (s *store) compactBarrier(ctx context.Context, ch chan struct{}) {

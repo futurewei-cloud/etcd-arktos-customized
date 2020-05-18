@@ -105,7 +105,23 @@ func (tw *storeTxnWrite) End() {
 		tw.s.saveIndex(tw.tx)
 		// hold revMu lock to prevent new read txns from opening until writeback.
 		tw.s.revMu.Lock()
-		tw.s.currentRev++
+		newRevBase := getCurrentRevisionBase()
+		if newRevBase == tw.s.writePerMSRev {
+			tw.s.countWritePerMS++
+			if tw.s.countWritePerMS >= 4096 {
+				plog.Warningf("Writer per ms %d >= 4096", tw.s.countWritePerMS)
+			}
+		} else {
+			tw.s.countWritePerMS = 1
+			tw.s.writePerMSRev = newRevBase
+		}
+		if tw.s.currentRev < newRevBase {
+			tw.s.currentRev = newRevBase
+		} else {
+			tw.s.currentRev++
+			plog.Debugf("New revision base %v <= current revision %v. Skip updating to new time stamp. wps %v",
+				newRevBase, tw.s.currentRev, tw.s.countWritePerMS)
+		}
 	}
 	tw.tx.Unlock()
 	if len(tw.changes) != 0 {

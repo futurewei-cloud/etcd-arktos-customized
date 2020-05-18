@@ -19,6 +19,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"github.com/dustin/go-humanize"
 	"math"
 	mrand "math/rand"
 	"os"
@@ -790,6 +791,18 @@ func TestConcurrentReadTxAndWrite(t *testing.T) {
 	case <-time.After(5 * time.Minute):
 		testutil.FatalStack(t, "timeout")
 	}
+}
+
+func TestTimeElapsedForGetCurrentRevisionBase(t *testing.T) {
+	testTimes := int64(1000000) // 1M
+	startTime := time.Now().UnixNano()
+	for i := int64(0); i < testTimes; i++ {
+		getCurrentRevisionBase()
+	}
+	endTime := time.Now().UnixNano()
+	nanoSecElapsed := endTime - startTime
+	t.Logf("Time elapsed for getting %s times of getCurrentRevisionBase: %s nano seconds",
+		humanize.Comma(testTimes), humanize.Comma(nanoSecElapsed))
 }
 
 type kv struct {
