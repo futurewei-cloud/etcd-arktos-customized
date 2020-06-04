@@ -57,6 +57,8 @@ type Stats struct {
 	Total      time.Duration
 	ErrorDist  map[string]int
 	Lats       []float64
+	StartTime  []time.Time
+	EndTime    []time.Time
 	TimeSeries TimeSeries
 }
 
@@ -146,6 +148,7 @@ func (r *report) String() (s string) {
 		s += fmt.Sprintf("  Stddev:\t%s.\n", r.sec2str(r.stats.Stddev))
 		s += fmt.Sprintf("  Requests/sec:\t"+r.precision+"\n", r.stats.RPS)
 		s += r.histogram()
+		s += r.secondsRPS()
 		s += r.sprintLatencies()
 		if r.sps != nil {
 			s += fmt.Sprintf("%v\n", r.sps.getTimeSeries())
@@ -175,11 +178,29 @@ func (r *report) processResult(res *Result) {
 		return
 	}
 	dur := res.Duration()
+	starttime := res.Start
+	endtime := res.End
 	r.stats.Lats = append(r.stats.Lats, dur.Seconds())
+	r.stats.StartTime = append(r.stats.StartTime, starttime)
+	r.stats.EndTime = append(r.stats.EndTime, endtime)
 	r.stats.AvgTotal += dur.Seconds()
 	if r.sps != nil {
 		r.sps.Add(res.Start, dur)
 	}
+}
+
+type timeSlice []time.Time
+
+func (s timeSlice) Less(i, j int) bool {
+	return s[i].Before(s[j])
+}
+
+func (s timeSlice) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+func (s timeSlice) Len() int {
+	return len(s)
 }
 
 func (r *report) processResults() {
@@ -201,6 +222,38 @@ func (r *report) processResults() {
 		r.stats.Fastest = r.stats.Lats[0]
 		r.stats.Slowest = r.stats.Lats[len(r.stats.Lats)-1]
 	}
+}
+
+func (r *report) secondsRPS() string {
+	var startslice timeSlice = r.stats.StartTime
+	var endslice timeSlice = r.stats.EndTime
+	secondsrps := make([]int, int(r.stats.Total.Seconds())+1)
+	sort.Sort(startslice)
+	startseconds := startslice[0]
+	endseconds := startslice[0]
+	maxrps := 0
+	for i := 0; i < int(r.stats.Total.Seconds())+1; i++ {
+		rps := 0
+		secondsrps[i] = 0
+		endseconds = endseconds.Add(time.Second)
+		for j := range endslice {
+			if endslice[j].Before(endseconds) && endslice[j].After(startseconds) {
+				rps++
+			}
+		}
+		secondsrps[i] = rps
+		if maxrps < rps {
+			maxrps = rps
+		}
+		startseconds = endseconds
+	}
+
+	s := fmt.Sprintf("\nSecond RPM histogram:\n")
+	for i := 0; i < len(secondsrps); i++ {
+		s += fmt.Sprintf("  secondsRPS [%d]: %d\n", i, secondsrps[i])
+	}
+	s += fmt.Sprintf("  Max Requests/sec: %d\n", maxrps)
+	return s
 }
 
 var pctls = []float64{10, 25, 50, 75, 90, 95, 99, 99.9}
